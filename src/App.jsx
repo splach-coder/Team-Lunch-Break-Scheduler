@@ -339,13 +339,13 @@ ${timeSlots.map(slot =>
 
   const handleLogin = (e) => {
     e.preventDefault();
-    if (loginData.username === 'admin' && loginData.password === 'admin') {
+    if (loginData.username === 'admin' && loginData.password === 'admin123') {
       setIsAdmin(true);
       setLoginOpen(false);
       setLoginError('');
       localStorage.setItem('lunchSchedulerAuth', 'true');
     } else {
-      setLoginError('Invalid credentials. Use admin/admin for demo.');
+      setLoginError('Invalid credentials.');
     }
   };
 

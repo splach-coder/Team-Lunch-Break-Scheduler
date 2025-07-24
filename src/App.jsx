@@ -12,13 +12,14 @@ const App = () => {
       { id: 5, name: 'Team 5', members: ['Yahya', 'Mehdi', 'Youssef', 'Hamza'], color: 'bg-pink-100 text-pink-800 border-pink-200' }
     ],
     "Export": [
-      { id: 6, name: 'Team A', members: ['Ahmed', 'Fatima', 'Karim'], color: 'bg-red-100 text-red-800 border-red-200' },
-      { id: 7, name: 'Team B', members: ['Nadia', 'Omar', 'Leila'], color: 'bg-indigo-100 text-indigo-800 border-indigo-200' }
+      { id: 6, name: 'Team 1', members: ['Mourad', 'chaimae', 'Dija' ], color: 'bg-red-100 text-red-800 border-red-200' },
+      { id: 7, name: 'Team 2', members: ['Aya', 'Zahira', 'Fatima zahra'], color: 'bg-indigo-100 text-indigo-800 border-indigo-200' },
+      { id: 11, name: 'Team 2', members: ['Mouhsin' , 'Ikram', 'Hafida'], color: 'bg-green-100 text-green-800 border-green-200' }
     ],
     "Administration": [
-      { id: 8, name: 'HR', members: ['Samira', 'Khalid'], color: 'bg-teal-100 text-teal-800 border-teal-200' },
-      { id: 9, name: 'Finance', members: ['Rachid', 'Laila', 'Hassan'], color: 'bg-amber-100 text-amber-800 border-amber-200' },
-      { id: 10, name: 'Management', members: ['Ali', 'Farida'], color: 'bg-lime-100 text-lime-800 border-lime-200' }
+      { id: 8, name: 'Team 1', members: ['Salma', "Amina"], color: 'bg-teal-100 text-teal-800 border-teal-200' },
+      { id: 9, name: 'Team 2', members: ['Fatima zahra Her', 'Wissal'], color: 'bg-amber-100 text-amber-800 border-amber-200' },
+      { id: 10, name: 'Team 3', members: ['Fatima zahra ben',], color: 'bg-green-100 text-green-800 border-green-200' }
     ]
   };
 
@@ -30,23 +31,22 @@ const App = () => {
 
   // Initialize schedule with all teams
   const initialSchedule = {
-    1: ['Simo', 'Sanaa', 'Houda', 'Hind', 'Yahya', 'Mehdi', 'Ahmed', 'Nadia', 'Samira', 'Ali'],
-    2: ['Mustapha', 'Ayoub', 'Fadwa', 'Zohra', 'Youssef', 'Fatima', 'Omar', 'Khalid', 'Rachid'],
-    3: ['Khadija', 'Aymane', 'Zakaria', 'Amina B', 'Oumaima', 'Hamza', 'Karim', 'Leila', 'Laila', 'Farida', 'Hassan']
+    1: ['Mustapha', 'Zakaria', 'Oumaima', 'Youssef', 'Amina B', 'Ikram', 'Dija', 'Salma', "Amina"],
+    2: ['Hafida', 'Aya', 'chaimae', 'Zohra', 'Fadwa', 'Khadija', 'Aymane', 'Ayoub', 'Hamza', 'Fatima zahra ben', 'Wissal'],
+    3: ['Zahira', 'Mouhsin', 'Mourad', 'Fatima zahra Her', "Simo", "Mehdi", "Yahya", 'Sanaa', 'Hind', 'Houda']
   };
 
   // Special constraints - expanded for all teams
   const specialConstraints = {
     conflictGroups: [
-      ['Sanaa', 'Fadwa', 'Zohra'], // Can't be in same time slot
+      ['Sanaa', 'Fadwa'], // Can't be in same time slot
       ['Mehdi', 'Hamza'], // Can't be in same time slot
-      ['Samira', 'Khalid'], // HR team can't be together
-      ['Ali', 'Farida'] // Management can't be together
+      ['Salma', 'Fatima zahra ben', 'Fatima zahra Her'], // HR team can't be together
     ],
     soloRequirements: [
       { person: 'Sanaa', team: 'Team 2' }, // Must be alone from Team 2
       { person: 'Fadwa', team: 'Team 3' },  // Must be alone from Team 3
-      { person: 'Samira', team: 'HR' }      // HR must be alone
+      { person: 'Fatima zahra ben', team: 'Team 3' }      // HR must be alone
     ]
   };
 
@@ -249,11 +249,12 @@ const App = () => {
       newSchedule[3].push('Hamza');
     } else if (selectedBigTeam === 'Administration') {
       // Place Samira alone from HR
-      newSchedule[3].push('Samira');
+      newSchedule[3].push('Fatima zahra ben');
      
       // Separate Ali and Farida
-      newSchedule[1].push('Ali');
-      newSchedule[2].push('Farida');
+      newSchedule[1].push('Fatima zahra ben');
+      newSchedule[2].push('Fatima zahra Her');
+      newSchedule[2].push('Salma');
     }
    
     // Now place remaining people
@@ -287,7 +288,7 @@ const App = () => {
           bestSlot = newSchedule[1].length <= newSchedule[3].length ? 1 : 3;
         }
         // Avoid putting HR members with Samira
-        else if (selectedBigTeam === 'Administration' && personTeam.name === 'HR' && newSchedule[3].includes('Samira')) {
+        else if (selectedBigTeam === 'Administration' && personTeam.name === 'Team 3' && newSchedule[3].includes('Fatima zahra ben')) {
           bestSlot = newSchedule[1].length <= newSchedule[2].length ? 1 : 2;
         }
        
@@ -385,13 +386,6 @@ ${timeSlots.map(slot =>
                 ))}
               </select>
               <button
-                onClick={autoOptimize}
-                className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700"
-              >
-                <RotateCcw className="w-4 h-4" />
-                Auto-Optimize
-              </button>
-              <button
                 onClick={generateMessage}
                 className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
               >
@@ -449,7 +443,7 @@ ${timeSlots.map(slot =>
                   className="w-full px-3 py-2 border rounded-lg"
                   value={loginData.username}
                   onChange={(e) => setLoginData({...loginData, username: e.target.value})}
-                  placeholder="admin"
+                  placeholder=""
                 />
               </div>
               <div className="mb-4">
@@ -459,7 +453,7 @@ ${timeSlots.map(slot =>
                   className="w-full px-3 py-2 border rounded-lg"
                   value={loginData.password}
                   onChange={(e) => setLoginData({...loginData, password: e.target.value})}
-                  placeholder="admin"
+                  placeholder=""
                 />
               </div>
               {loginError && <div className="text-red-500 mb-4">{loginError}</div>}
@@ -502,8 +496,7 @@ ${timeSlots.map(slot =>
                   )}
                   {selectedBigTeam === 'Administration' && (
                     <>
-                      • Samira and Khalid cannot be together<br/>
-                      • Ali and Farida cannot be together<br/>
+                      • Fatima zahra ben and Fatima zahra Her and Salma cannot be together<br/>
                     </>
                   )}
                 </div>
@@ -519,7 +512,6 @@ ${timeSlots.map(slot =>
                   )}
                   {selectedBigTeam === 'Administration' && (
                     <>
-                      • Samira must be alone from HR<br/>
                     </>
                   )}
                 </div>

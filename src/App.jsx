@@ -1,42 +1,24 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Clock, Users, CheckCircle, AlertTriangle, RotateCcw, Download, Copy, LogIn, LogOut, Lock, Eye, Filter, ChevronDown, ChevronUp } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { 
+  Clock, Users, CheckCircle, AlertTriangle, RotateCcw, Download, Copy, 
+  LogIn, LogOut, Lock, Eye, Filter, ChevronDown, ChevronUp 
+} from 'lucide-react';
+import { 
+  fetchMembers, 
+  fetchSchedule, 
+  updateSchedule, 
+  createSchedule,
+  deleteSchedule
+} from './airtable';
 
 const App = () => {
-  // Teams data - now organized with big teams and sub-teams
-  const teamStructure = {
-    "Import": [
-      { id: 1, name: 'Team 1', members: ['Simo', 'Mustapha', 'Khadija'], color: 'bg-blue-100 text-blue-800 border-blue-200' },
-      { id: 2, name: 'Team 2', members: ['Ayoub', 'Sanaa', 'Aymane', 'Zakaria'], color: 'bg-green-100 text-green-800 border-green-200' },
-      { id: 3, name: 'Team 3', members: ['Houda', 'Fadwa', 'Amina B', 'Oumaima'], color: 'bg-purple-100 text-purple-800 border-purple-200' },
-      { id: 4, name: 'Team 4', members: ['Zohra', 'Hind'], color: 'bg-orange-100 text-orange-800 border-orange-200' },
-      { id: 5, name: 'Team 5', members: ['Yahya', 'Mehdi', 'Youssef', 'Hamza'], color: 'bg-pink-100 text-pink-800 border-pink-200' }
-    ],
-    "Export": [
-      { id: 6, name: 'Team 1', members: ['Mourad', 'chaimae', 'Dija' ], color: 'bg-red-100 text-red-800 border-red-200' },
-      { id: 7, name: 'Team 2', members: ['Aya', 'Zahira', 'Fatima zahra'], color: 'bg-indigo-100 text-indigo-800 border-indigo-200' },
-      { id: 11, name: 'Team 2', members: ['Mouhsin' , 'Ikram', 'Hafida'], color: 'bg-green-100 text-green-800 border-green-200' }
-    ],
-    "Administration": [
-      { id: 8, name: 'Team 1', members: ['Salma', "Amina"], color: 'bg-teal-100 text-teal-800 border-teal-200' },
-      { id: 9, name: 'Team 2', members: ['Fatima zahra Her', 'Wissal'], color: 'bg-amber-100 text-amber-800 border-amber-200' },
-      { id: 10, name: 'Team 3', members: ['Fatima zahra ben',], color: 'bg-green-100 text-green-800 border-green-200' }
-    ]
-  };
-
   const timeSlots = [
-    { id: 1, time: '12:00–13:00', start: '12:00', end: '13:00' },
-    { id: 2, time: '13:00–14:00', start: '13:00', end: '14:00' },
-    { id: 3, time: '14:00–15:00', start: '14:00', end: '15:00' }
+    { id: '1', time: '12:00–13:00', start: '12:00', end: '13:00' },
+    { id: '2', time: '13:00–14:00', start: '13:00', end: '14:00' },
+    { id: '3', time: '14:00–15:00', start: '14:00', end: '15:00' }
   ];
 
-  // Initialize schedule with all teams
-  const initialSchedule = {
-    1: ['Mustapha', 'Zakaria', 'Oumaima', 'Youssef', 'Amina B', 'Ikram', 'Dija', 'Salma', "Amina"],
-    2: ['Hafida', 'Aya', 'chaimae', 'Zohra', 'Fadwa', 'Khadija', 'Aymane', 'Ayoub', 'Hamza', 'Fatima zahra ben', 'Wissal'],
-    3: ['Zahira', 'Mouhsin', 'Mourad', 'Fatima zahra Her', "Simo", "Mehdi", "Yahya", 'Sanaa', 'Hind', 'Houda']
-  };
-
-  // Special constraints - expanded for all teams
+  // Special constraints - now based on team data
   const specialConstraints = {
     conflictGroups: [
       ['Sanaa', 'Fadwa'], // Can't be in same time slot
@@ -51,7 +33,9 @@ const App = () => {
   };
 
   // State
-  const [schedule, setSchedule] = useState(initialSchedule);
+  const [members, setMembers] = useState([]);
+  const [schedule, setSchedule] = useState({ 1: [], 2: [], 3: [] });
+  const [teamStructure, setTeamStructure] = useState({});
   const [draggedPerson, setDraggedPerson] = useState(null);
   const [showMessage, setShowMessage] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -64,6 +48,84 @@ const App = () => {
     Export: false,
     Administration: false
   });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Initialize data from Airtable
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        // Fetch members and schedule
+        const [membersData, scheduleData] = await Promise.all([
+          fetchMembers(),
+          fetchSchedule()
+        ]);
+
+        setMembers(membersData);
+
+        // Organize schedule by time slot
+        const newSchedule = { 1: [], 2: [], 3: [] };
+        scheduleData.forEach(item => {
+          if (item.timeSlot && newSchedule[item.timeSlot]) {
+            newSchedule[item.timeSlot].push({
+              id: item.id,
+              name: item.memberName,
+              memberId: item.memberId
+            });
+          }
+        });
+        setSchedule(newSchedule);
+
+        // Create team structure from members
+        const structure = {};
+        membersData.forEach(member => {
+          if (!member.bigTeam || !member.team || !member.name) return;
+          
+          if (!structure[member.bigTeam]) {
+            structure[member.bigTeam] = [];
+          }
+          
+          // Check if team already exists in this big team
+          const existingTeam = structure[member.bigTeam].find(t => t.name === member.team);
+          if (existingTeam) {
+            existingTeam.members.push(member.name);
+          } else {
+            // Assign colors based on team (you can customize this)
+            const colors = [
+              'bg-blue-100 text-blue-800 border-blue-200',
+              'bg-green-100 text-green-800 border-green-200',
+              'bg-purple-100 text-purple-800 border-purple-200',
+              'bg-orange-100 text-orange-800 border-orange-200',
+              'bg-pink-100 text-pink-800 border-pink-200',
+              'bg-red-100 text-red-800 border-red-200',
+              'bg-indigo-100 text-indigo-800 border-indigo-200',
+              'bg-teal-100 text-teal-800 border-teal-200',
+              'bg-amber-100 text-amber-800 border-amber-200'
+            ];
+            
+            structure[member.bigTeam].push({
+              id: `${member.bigTeam}-${member.team}`,
+              name: member.team,
+              members: [member.name],
+              color: colors[structure[member.bigTeam].length % colors.length]
+            });
+          }
+        });
+        setTeamStructure(structure);
+
+      } catch (error) {
+        console.error('Error loading data:', error);
+        setError('Failed to load data. Please refresh the page.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
 
   // Check if user was previously logged in
   useEffect(() => {
@@ -72,11 +134,6 @@ const App = () => {
       setIsAdmin(true);
     }
   }, []);
-
-  // Get all teams (flattened)
-  const getAllTeams = () => {
-    return Object.values(teamStructure).flat();
-  };
 
   // Get all sub-teams for the selected big team
   const getCurrentSubTeams = () => {
@@ -113,7 +170,7 @@ const App = () => {
     
     Object.keys(schedule).forEach(slotId => {
       filteredSchedule[slotId] = schedule[slotId].filter(person => 
-        currentPeople.includes(person)
+        currentPeople.includes(person.name)
       );
     });
     
@@ -130,14 +187,14 @@ const App = () => {
     Object.keys(filteredSchedule).forEach(slotId => {
       const teamCounts = {};
       filteredSchedule[slotId].forEach(person => {
-        const team = getPersonTeam(person);
+        const team = getPersonTeam(person.name);
         if (team) {
           teamCounts[team.id] = (teamCounts[team.id] || 0) + 1;
         }
       });
      
       Object.entries(teamCounts).forEach(([teamId, count]) => {
-        const team = getCurrentSubTeams().find(t => t.id === parseInt(teamId));
+        const team = getCurrentSubTeams().find(t => t.id === teamId);
         if (team && count > 2) {
           violations.push(`${team.name} has ${count} people in slot ${slotId} (max 2 allowed)`);
         } else if (team && count === 2) {
@@ -152,7 +209,9 @@ const App = () => {
       if (relevantGroup.length < 2) return;
       
       Object.keys(filteredSchedule).forEach(slotId => {
-        const conflictsInSlot = relevantGroup.filter(person => filteredSchedule[slotId].includes(person));
+        const conflictsInSlot = relevantGroup.filter(person => 
+          filteredSchedule[slotId].some(p => p.name === person)
+        );
         if (conflictsInSlot.length > 1) {
           violations.push(`Conflict: ${conflictsInSlot.join(', ')} cannot be in the same time slot (${timeSlots.find(s => s.id.toString() === slotId)?.time})`);
         }
@@ -164,13 +223,13 @@ const App = () => {
       if (!currentPeople.includes(person)) return;
       
       Object.keys(filteredSchedule).forEach(slotId => {
-        if (filteredSchedule[slotId].includes(person)) {
+        if (filteredSchedule[slotId].some(p => p.name === person)) {
           const teamMatesInSlot = filteredSchedule[slotId].filter(p => {
-            const pTeam = getPersonTeam(p);
-            return pTeam && pTeam.name === team && p !== person;
+            const pTeam = getPersonTeam(p.name);
+            return pTeam && pTeam.name === team && p.name !== person;
           });
           if (teamMatesInSlot.length > 0) {
-            violations.push(`${person} must be alone from ${team} but is with: ${teamMatesInSlot.join(', ')}`);
+            violations.push(`${person} must be alone from ${team} but is with: ${teamMatesInSlot.map(p => p.name).join(', ')}`);
           }
         }
       });
@@ -185,7 +244,7 @@ const App = () => {
 
   const getUnscheduledPeople = () => {
     const allPeople = getCurrentPeople();
-    const scheduledPeople = getScheduledPeople();
+    const scheduledPeople = getScheduledPeople().map(p => p.name);
     return allPeople.filter(person => !scheduledPeople.includes(person));
   };
 
@@ -201,33 +260,55 @@ const App = () => {
     e.dataTransfer.dropEffect = 'move';
   };
 
-  const handleDrop = (e, toSlot) => {
+  const handleDrop = async (e, toSlot) => {
     if (!isAdmin) return;
     e.preventDefault();
     if (!draggedPerson) return;
 
     const { person, fromSlot } = draggedPerson;
-   
-    setSchedule(prev => {
-      const newSchedule = { ...prev };
-     
-      // Remove from original slot if exists
+    
+    try {
+      // If moving from one slot to another
       if (fromSlot) {
-        newSchedule[fromSlot] = newSchedule[fromSlot].filter(p => p !== person);
+        // Delete the old schedule entry
+        await deleteSchedule(person.id);
       }
-     
-      // Add to new slot if not already there
-      if (!newSchedule[toSlot].includes(person)) {
-        newSchedule[toSlot] = [...newSchedule[toSlot], person];
+      
+      // Create new schedule entry
+      const result = await createSchedule(person.memberId, toSlot);
+      
+      if (result.success) {
+        // Update local state
+        setSchedule(prev => {
+          const newSchedule = { ...prev };
+          
+          // Remove from original slot if exists
+          if (fromSlot) {
+            newSchedule[fromSlot] = newSchedule[fromSlot].filter(p => p.id !== person.id);
+          }
+          
+          // Add to new slot
+          newSchedule[toSlot] = [
+            ...newSchedule[toSlot],
+            {
+              id: result.id, // This should be the ID returned from createSchedule
+              name: person.name,
+              memberId: person.memberId
+            }
+          ];
+          
+          return newSchedule;
+        });
       }
-     
-      return newSchedule;
-    });
-   
-    setDraggedPerson(null);
+    } catch (error) {
+      console.error('Error updating schedule:', error);
+      alert('Failed to update schedule. Please try again.');
+    } finally {
+      setDraggedPerson(null);
+    }
   };
 
-  const autoOptimize = () => {
+  const autoOptimize = async () => {
     if (!isAdmin) return;
     
     const allPeople = getCurrentPeople();
@@ -236,37 +317,43 @@ const App = () => {
     // Handle special constraints first for the current big team
     if (selectedBigTeam === 'Import') {
       // Place Sanaa alone from Team 2
-      newSchedule[1].push('Sanaa');
+      const sanaa = members.find(m => m.name === 'Sanaa');
+      if (sanaa) newSchedule[1].push(sanaa);
      
       // Place Fadwa alone from Team 3 
-      newSchedule[2].push('Fadwa');
+      const fadwa = members.find(m => m.name === 'Fadwa');
+      if (fadwa) newSchedule[2].push(fadwa);
      
       // Place Zohra (can't be with Sanaa or Fadwa)
-      newSchedule[2].push('Zohra');
+      const zohra = members.find(m => m.name === 'Zohra');
+      if (zohra) newSchedule[2].push(zohra);
      
       // Separate Mehdi and Hamza
-      newSchedule[1].push('Mehdi');
-      newSchedule[3].push('Hamza');
+      const mehdi = members.find(m => m.name === 'Mehdi');
+      const hamza = members.find(m => m.name === 'Hamza');
+      if (mehdi) newSchedule[1].push(mehdi);
+      if (hamza) newSchedule[3].push(hamza);
     } else if (selectedBigTeam === 'Administration') {
-      // Place Samira alone from HR
-      newSchedule[3].push('Fatima zahra ben');
-     
-      // Separate Ali and Farida
-      newSchedule[1].push('Fatima zahra ben');
-      newSchedule[2].push('Fatima zahra Her');
-      newSchedule[2].push('Salma');
+      // Place HR members separately
+      const fatimaZahraBen = members.find(m => m.name === 'Fatima zahra ben');
+      const fatimaZahraHer = members.find(m => m.name === 'Fatima zahra Her');
+      const salma = members.find(m => m.name === 'Salma');
+      
+      if (fatimaZahraBen) newSchedule[3].push(fatimaZahraBen);
+      if (fatimaZahraHer) newSchedule[2].push(fatimaZahraHer);
+      if (salma) newSchedule[2].push(salma);
     }
    
     // Now place remaining people
-    const placedPeople = newSchedule[1].concat(newSchedule[2], newSchedule[3]);
+    const placedPeople = newSchedule[1].concat(newSchedule[2], newSchedule[3]).map(p => p.name);
     const remainingPeople = allPeople.filter(person => !placedPeople.includes(person));
    
     // Sort remaining by teams to distribute evenly
     const teamGroups = {};
-    remainingPeople.forEach(person => {
-      const team = getPersonTeam(person);
+    remainingPeople.forEach(personName => {
+      const team = getPersonTeam(personName);
       if (!teamGroups[team.id]) teamGroups[team.id] = [];
-      teamGroups[team.id].push(person);
+      teamGroups[team.id].push(members.find(m => m.name === personName));
     });
    
     // Distribute remaining people trying to balance slots
@@ -274,42 +361,67 @@ const App = () => {
     const slots = [1, 2, 3];
    
     Object.values(teamGroups).forEach(teamMembers => {
-      teamMembers.forEach(person => {
+      teamMembers.forEach(member => {
         // Find best slot for this person
         let bestSlot = slots[slotIndex % 3];
        
         // Avoid putting Team 2 members with Sanaa
-        const personTeam = getPersonTeam(person);
-        if (selectedBigTeam === 'Import' && personTeam.name === 'Team 2' && newSchedule[1].includes('Sanaa')) {
+        const personTeam = getPersonTeam(member.name);
+        if (selectedBigTeam === 'Import' && personTeam.name === 'Team 2' && newSchedule[1].some(p => p.name === 'Sanaa')) {
           bestSlot = newSchedule[2].length <= newSchedule[3].length ? 2 : 3;
         }
         // Avoid putting Team 3 members with Fadwa 
-        else if (selectedBigTeam === 'Import' && personTeam.name === 'Team 3' && newSchedule[2].includes('Fadwa')) {
+        else if (selectedBigTeam === 'Import' && personTeam.name === 'Team 3' && newSchedule[2].some(p => p.name === 'Fadwa')) {
           bestSlot = newSchedule[1].length <= newSchedule[3].length ? 1 : 3;
         }
         // Avoid putting HR members with Samira
-        else if (selectedBigTeam === 'Administration' && personTeam.name === 'Team 3' && newSchedule[3].includes('Fatima zahra ben')) {
+        else if (selectedBigTeam === 'Administration' && personTeam.name === 'Team 3' && newSchedule[3].some(p => p.name === 'Fatima zahra ben')) {
           bestSlot = newSchedule[1].length <= newSchedule[2].length ? 1 : 2;
         }
        
-        newSchedule[bestSlot].push(person);
+        newSchedule[bestSlot].push(member);
         slotIndex++;
       });
     });
    
-    // Update the full schedule while preserving other teams' assignments
-    setSchedule(prev => {
-      const updatedSchedule = { ...prev };
-      Object.keys(newSchedule).forEach(slotId => {
-        // Remove current team's people from the slot
-        updatedSchedule[slotId] = updatedSchedule[slotId].filter(person => 
-          !allPeople.includes(person)
-        );
-        // Add the newly scheduled people
-        updatedSchedule[slotId] = [...updatedSchedule[slotId], ...newSchedule[slotId]];
+    // Update Airtable and local state
+    try {
+      // First clear all existing schedules for these members
+      const memberIds = allPeople.map(name => members.find(m => m.name === name)?.id).filter(Boolean);
+      const currentSchedules = await fetchSchedule();
+      const schedulesToDelete = currentSchedules.filter(s => memberIds.includes(s.memberId));
+      
+      await Promise.all(schedulesToDelete.map(s => deleteSchedule(s.id)));
+      
+      // Create new schedules
+      const createPromises = [];
+      Object.entries(newSchedule).forEach(([slotId, people]) => {
+        people.forEach(person => {
+          createPromises.push(createSchedule(person.id, slotId));
+        });
       });
-      return updatedSchedule;
-    });
+      
+      await Promise.all(createPromises);
+      
+      // Update local state
+      const updatedSchedule = { 1: [], 2: [], 3: [] };
+      const newScheduleData = await fetchSchedule();
+      
+      newScheduleData.forEach(item => {
+        if (item.timeSlot && updatedSchedule[item.timeSlot]) {
+          updatedSchedule[item.timeSlot].push({
+            id: item.id,
+            name: item.memberName,
+            memberId: item.memberId
+          });
+        }
+      });
+      
+      setSchedule(updatedSchedule);
+    } catch (error) {
+      console.error('Error optimizing schedule:', error);
+      alert('Failed to optimize schedule. Please try again.');
+    }
   };
 
   const generateMessage = () => {
@@ -330,7 +442,7 @@ const App = () => {
     const message = `Hello ${selectedBigTeam} team 👋, Here's the lunch break schedule. Everyone has 1 hour. Please respect your assigned time with maximum 15 minutes of delay. If any issue arises, let me know. Thanks!
 
 ${timeSlots.map(slot =>
-  `${slot.time}:\n${filteredSchedule[slot.id].map(person => `• ${person}`).join('\n')}`
+  `${slot.time}:\n${filteredSchedule[slot.id].map(person => `• ${person.name}`).join('\n')}`
 ).join('\n\n')}`;
    
     navigator.clipboard.writeText(message);
@@ -364,6 +476,25 @@ ${timeSlots.map(slot =>
   const constraints = getTeamConstraintStatus();
   const unscheduledPeople = getUnscheduledPeople();
   const filteredSchedule = getFilteredSchedule();
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-6xl mx-auto p-6 bg-white">
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+          <strong className="font-bold">Error: </strong>
+          <span className="block sm:inline">{error}</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-6xl mx-auto p-6 bg-white">
@@ -563,7 +694,7 @@ ${timeSlots.map(slot =>
               {timeSlots.map(slot => (
                 <div key={slot.id} className="flex justify-between text-sm">
                   <span>{slot.time}</span>
-                  <span className="font-medium">{filteredSchedule[slot.id].length} people</span>
+                  <span className="font-medium">{filteredSchedule[slot.id]?.length || 0} people</span>
                 </div>
               ))}
             </div>
@@ -576,11 +707,16 @@ ${timeSlots.map(slot =>
               <div className="flex flex-wrap gap-2">
                 {unscheduledPeople.map(person => {
                   const team = getPersonTeam(person);
+                  const member = members.find(m => m.name === person);
                   return (
                     <div
                       key={person}
                       draggable={isAdmin}
-                      onDragStart={(e) => handleDragStart(e, person)}
+                      onDragStart={(e) => handleDragStart(e, { 
+                        name: person, 
+                        memberId: member?.id,
+                        id: `unscheduled-${person}`
+                      })}
                       className={`px-3 py-1 rounded-full text-sm font-medium ${isAdmin ? 'cursor-move' : 'cursor-default'} border ${team?.color || 'bg-gray-100 text-gray-800 border-gray-200'}`}
                     >
                       {person}
@@ -605,21 +741,21 @@ ${timeSlots.map(slot =>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-900">{slot.time}</h3>
               <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded text-sm">
-                {filteredSchedule[slot.id].length} people
+                {filteredSchedule[slot.id]?.length || 0} people
               </span>
             </div>
            
             <div className="space-y-2">
-              {filteredSchedule[slot.id].map(person => {
-                const team = getPersonTeam(person);
+              {filteredSchedule[slot.id]?.map(person => {
+                const team = getPersonTeam(person.name);
                 return (
                   <div
-                    key={person}
+                    key={person.id}
                     draggable={isAdmin}
                     onDragStart={isAdmin ? (e) => handleDragStart(e, person, slot.id) : undefined}
                     className={`px-3 py-2 rounded-lg text-sm font-medium ${isAdmin ? 'cursor-move' : 'cursor-default'} border flex items-center justify-between ${team?.color || 'bg-gray-100 text-gray-800 border-gray-200'}`}
                   >
-                    <span>{person}</span>
+                    <span>{person.name}</span>
                     {isAdmin && (
                       <span className="text-xs opacity-75">{team?.name}</span>
                     )}
@@ -627,7 +763,7 @@ ${timeSlots.map(slot =>
                 );
               })}
              
-              {filteredSchedule[slot.id].length === 0 && isAdmin && (
+              {(!filteredSchedule[slot.id] || filteredSchedule[slot.id].length === 0) && isAdmin && (
                 <div className="text-center text-gray-400 py-8">
                   Drop people here
                 </div>
@@ -667,8 +803,8 @@ ${timeSlots.map(slot =>
               {timeSlots.map(slot => (
                 <div key={slot.id} className="mb-3">
                   <strong>{slot.time}:</strong>
-                  {filteredSchedule[slot.id].map(person => (
-                    <div key={person} className="ml-2">• {person}</div>
+                  {filteredSchedule[slot.id]?.map(person => (
+                    <div key={person.id} className="ml-2">• {person.name}</div>
                   ))}
                 </div>
               ))}

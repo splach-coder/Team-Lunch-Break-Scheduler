@@ -390,14 +390,16 @@ const App = () => {
         }
       } else {
         // Create new schedule entry for unscheduled person for Friday
-        result = await createSchedule(person.memberId, toSlot, 'Friday');
+        // Use a UUID for the ID field
+        const nextId = crypto.randomUUID();
+        result = await createSchedule(person.memberId, toSlot, 'Friday', nextId);
         if (result.success) {
           setFridaySchedule(prev => {
             const newSchedule = { ...prev };
             newSchedule[toSlot] = [
-              ...newSchedule[toSlot],
+              ...newSchedule[toSlot].filter(p => p.memberId !== person.memberId),
               {
-                id: result.id,
+                id: nextId, // Use the UUID
                 name: person.name,
                 memberId: person.memberId
               }

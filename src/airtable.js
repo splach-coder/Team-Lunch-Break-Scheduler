@@ -76,15 +76,19 @@ export const updateSchedule = async (scheduleId, newTimeSlot, day = 'Mon–Thu')
   }
 };
 
-export const createSchedule = async (memberId, timeSlot, day = 'Mon–Thu') => {
+export const createSchedule = async (memberId, timeSlot, day = 'Mon–Thu', id = null) => {
   try {
+    const fields = {
+      'Member': [memberId],
+      'Time Slot': timeSlot,
+      'Day': day
+    };
+    if (id !== null) {
+      fields['ID'] = String(id);
+    }
     const record = await base('Schedule Table').create([
       {
-        fields: {
-          'Member': [memberId],
-          'Time Slot': timeSlot,
-          'Day': day
-        }
+        fields
       }
     ]);
     return { 

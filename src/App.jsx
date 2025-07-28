@@ -8,7 +8,9 @@ import {
   fetchSchedule, 
   updateSchedule, 
   createSchedule,
-  deleteSchedule
+  deleteSchedule,
+  createMember,
+  fetchScheduleByDay // <-- add this import
 } from './airtable';
 
 const App = () => {
@@ -16,6 +18,11 @@ const App = () => {
     { id: '1', time: '12:00–13:00', start: '12:00', end: '13:00' },
     { id: '2', time: '13:00–14:00', start: '13:00', end: '14:00' },
     { id: '3', time: '14:00–15:00', start: '14:00', end: '15:00' }
+  ];
+  const fridayTimeSlots = [
+    { id: '1', time: '12:30–13:30', start: '12:30', end: '13:30' },
+    { id: '2', time: '13:30–14:30', start: '13:30', end: '14:30' },
+    { id: '3', time: '14:30–15:30', start: '14:30', end: '15:30' }
   ];
 
   // Special constraints - now based on team data
@@ -50,6 +57,10 @@ const App = () => {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [newMember, setNewMember] = useState({ name: '', team: '', bigTeam: '' });
+  const [addingMember, setAddingMember] = useState(false);
+  const [addMemberError, setAddMemberError] = useState('');
+  const [fridaySchedule, setFridaySchedule] = useState({ 1: [], 2: [], 3: [] });
 
   // Initialize data from Airtable
   useEffect(() => {
@@ -58,15 +69,16 @@ const App = () => {
         setLoading(true);
         setError(null);
         
-        // Fetch members and schedule
-        const [membersData, scheduleData] = await Promise.all([
+        // Fetch members and both schedules
+        const [membersData, scheduleData, fridayScheduleData] = await Promise.all([
           fetchMembers(),
-          fetchSchedule()
+          fetchScheduleByDay('Mon–Thu'),
+          fetchScheduleByDay('Friday')
         ]);
 
         setMembers(membersData);
 
-        // Organize schedule by time slot
+        // Organize Mon–Thu schedule by time slot
         const newSchedule = { 1: [], 2: [], 3: [] };
         scheduleData.forEach(item => {
           if (item.timeSlot && newSchedule[item.timeSlot]) {
@@ -78,6 +90,19 @@ const App = () => {
           }
         });
         setSchedule(newSchedule);
+
+        // Organize Friday schedule by time slot
+        const newFridaySchedule = { 1: [], 2: [], 3: [] };
+        fridayScheduleData.forEach(item => {
+          if (item.timeSlot && newFridaySchedule[item.timeSlot]) {
+            newFridaySchedule[item.timeSlot].push({
+              id: item.id,
+              name: item.memberName,
+              memberId: item.memberId
+            });
+          }
+        });
+        setFridaySchedule(newFridaySchedule);
 
         // Create team structure from members
         const structure = {};
@@ -177,6 +202,18 @@ const App = () => {
     return filteredSchedule;
   };
 
+  // Helper for Friday schedule
+  const getFilteredFridaySchedule = () => {
+    const currentPeople = getCurrentPeople();
+    const filteredSchedule = {};
+    Object.keys(fridaySchedule).forEach(slotId => {
+      filteredSchedule[slotId] = fridaySchedule[slotId].filter(person => 
+        currentPeople.includes(person.name)
+      );
+    });
+    return filteredSchedule;
+  };
+
   const getTeamConstraintStatus = () => {
     const violations = [];
     const warnings = [];
@@ -248,6 +285,16 @@ const App = () => {
     return allPeople.filter(person => !scheduledPeople.includes(person));
   };
 
+  const getScheduledFridayPeople = () => {
+    return Object.values(getFilteredFridaySchedule()).flat();
+  };
+
+  const getUnscheduledFridayPeople = () => {
+    const allPeople = getCurrentPeople();
+    const scheduledPeople = getScheduledFridayPeople().map(p => p.name);
+    return allPeople.filter(person => !scheduledPeople.includes(person));
+  };
+
   const handleDragStart = (e, person, fromSlot = null) => {
     if (!isAdmin) return;
     setDraggedPerson({ person, fromSlot });
@@ -268,41 +315,100 @@ const App = () => {
     const { person, fromSlot } = draggedPerson;
     
     try {
-      // If moving from one slot to another
+      let result;
       if (fromSlot) {
-        // Delete the old schedule entry
-        await deleteSchedule(person.id);
-      }
-      
-      // Create new schedule entry
-      const result = await createSchedule(person.memberId, toSlot);
-      
-      if (result.success) {
-        // Update local state
-        setSchedule(prev => {
-          const newSchedule = { ...prev };
-          
-          // Remove from original slot if exists
-          if (fromSlot) {
+        // Update the existing schedule entry instead of deleting and creating
+        result = await updateSchedule(person.id, toSlot);
+        if (result.success) {
+          setSchedule(prev => {
+            const newSchedule = { ...prev };
+            // Remove from original slot
             newSchedule[fromSlot] = newSchedule[fromSlot].filter(p => p.id !== person.id);
-          }
-          
-          // Add to new slot
-          newSchedule[toSlot] = [
-            ...newSchedule[toSlot],
-            {
-              id: result.id, // This should be the ID returned from createSchedule
-              name: person.name,
-              memberId: person.memberId
-            }
-          ];
-          
-          return newSchedule;
-        });
+            // Add to new slot
+            newSchedule[toSlot] = [
+              ...newSchedule[toSlot],
+              {
+                id: person.id,
+                name: person.name,
+                memberId: person.memberId
+              }
+            ];
+            return newSchedule;
+          });
+        }
+      } else {
+        // Create new schedule entry for unscheduled person
+        result = await createSchedule(person.memberId, toSlot);
+        if (result.success) {
+          setSchedule(prev => {
+            const newSchedule = { ...prev };
+            newSchedule[toSlot] = [
+              ...newSchedule[toSlot],
+              {
+                id: result.id,
+                name: person.name,
+                memberId: person.memberId
+              }
+            ];
+            return newSchedule;
+          });
+        }
       }
     } catch (error) {
       console.error('Error updating schedule:', error);
       alert('Failed to update schedule. Please try again.');
+    } finally {
+      setDraggedPerson(null);
+    }
+  };
+
+  // Drag-and-drop for Friday
+  const handleFridayDrop = async (e, toSlot) => {
+    if (!isAdmin) return;
+    e.preventDefault();
+    if (!draggedPerson) return;
+    const { person, fromSlot } = draggedPerson;
+    try {
+      let result;
+      if (fromSlot) {
+        // Update the existing schedule entry for Friday
+        result = await updateSchedule(person.id, toSlot, 'Friday');
+        if (result.success) {
+          setFridaySchedule(prev => {
+            const newSchedule = { ...prev };
+            newSchedule[fromSlot] = newSchedule[fromSlot].filter(p => p.id !== person.id);
+            newSchedule[toSlot] = [
+              ...newSchedule[toSlot],
+              {
+                id: person.id,
+                name: person.name,
+                memberId: person.memberId
+              }
+            ];
+            return newSchedule;
+          });
+        }
+      } else {
+        // Create new schedule entry for unscheduled person for Friday
+        result = await createSchedule(person.memberId, toSlot, 'Friday');
+        if (result.success) {
+          setFridaySchedule(prev => {
+            const newSchedule = { ...prev };
+            newSchedule[toSlot] = [
+              ...newSchedule[toSlot],
+              {
+                id: result.id,
+                name: person.name,
+                memberId: person.memberId
+              }
+            ];
+            return newSchedule;
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error updating Friday schedule:', error);
+      alert('Failed to update Friday schedule. Please try again.');
     } finally {
       setDraggedPerson(null);
     }
@@ -477,6 +583,57 @@ ${timeSlots.map(slot =>
   const unscheduledPeople = getUnscheduledPeople();
   const filteredSchedule = getFilteredSchedule();
 
+  // Add member handler
+  const handleAddMember = async (e) => {
+    e.preventDefault();
+    setAddingMember(true);
+    setAddMemberError('');
+    if (!newMember.name || !newMember.team || !newMember.bigTeam) {
+      setAddMemberError('All fields are required.');
+      setAddingMember(false);
+      return;
+    }
+    try {
+      const result = await createMember(newMember.name, newMember.team, newMember.bigTeam);
+      if (result.success) {
+        // Reload members and schedule
+        const [membersData, scheduleData] = await Promise.all([
+          fetchMembers(),
+          fetchSchedule()
+        ]);
+        setMembers(membersData);
+        // Rebuild schedule state
+        const newSchedule = { 1: [], 2: [], 3: [] };
+        scheduleData.forEach(item => {
+          if (item.timeSlot && newSchedule[item.timeSlot]) {
+            newSchedule[item.timeSlot].push({
+              id: item.id,
+              name: item.memberName,
+              memberId: item.memberId
+            });
+          }
+        });
+        setSchedule(newSchedule);
+        setNewMember({ name: '', team: '', bigTeam: '' });
+      } else {
+        setAddMemberError('Failed to add member.');
+      }
+    } catch (error) {
+      setAddMemberError('Failed to add member.');
+    } finally {
+      setAddingMember(false);
+    }
+  };
+
+  // For team dropdowns
+  const bigTeamOptions = [
+    { value: 'Import', label: 'Import', teams: ['Team 1', 'Team 2', 'Team 3', 'Team 4', 'Team 5'] },
+    { value: 'Export', label: 'Export', teams: ['Team 1', 'Team 2'] },
+    { value: 'Administration', label: 'Administration', teams: ['Team 1', 'Team 2', 'Team 3'] }
+  ];
+  const selectedBigTeamObj = bigTeamOptions.find(opt => opt.value === newMember.bigTeam) || bigTeamOptions[0];
+  const teamOptions = selectedBigTeamObj.teams;
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-screen">
@@ -609,6 +766,60 @@ ${timeSlots.map(slot =>
         </div>
       )}
 
+      {/* Admin-only Add Member Form */}
+      {isAdmin && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
+          <h3 className="font-semibold text-green-900 mb-2">Add New Member</h3>
+          <form className="flex flex-col md:flex-row gap-2 items-start md:items-end" onSubmit={handleAddMember}>
+            <div>
+              <label className="block text-xs text-gray-700 mb-1">Name</label>
+              <input
+                type="text"
+                className="px-2 py-1 border rounded"
+                value={newMember.name}
+                onChange={e => setNewMember({ ...newMember, name: e.target.value })}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-700 mb-1">Big Team</label>
+              <select
+                className="px-2 py-1 border rounded"
+                value={newMember.bigTeam || bigTeamOptions[0].value}
+                onChange={e => setNewMember({ ...newMember, bigTeam: e.target.value, team: '' })}
+                required
+              >
+                {bigTeamOptions.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-700 mb-1">Team</label>
+              <select
+                className="px-2 py-1 border rounded"
+                value={newMember.team || ''}
+                onChange={e => setNewMember({ ...newMember, team: e.target.value })}
+                required
+              >
+                <option value="">Select team</option>
+                {teamOptions.map(team => (
+                  <option key={team} value={team}>{team}</option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="submit"
+              className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50"
+              disabled={addingMember}
+            >
+              {addingMember ? 'Adding...' : 'Add Member'}
+            </button>
+          </form>
+          {addMemberError && <div className="text-red-600 mt-2 text-sm">{addMemberError}</div>}
+        </div>
+      )}
+
       {/* Admin-only panels */}
       {isAdmin && (
         <>
@@ -729,48 +940,123 @@ ${timeSlots.map(slot =>
         </>
       )}
 
-      {/* Schedule Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        {timeSlots.map(slot => (
-          <div
-            key={slot.id}
-            className={`bg-white border-2 rounded-lg p-4 min-h-[300px] ${isAdmin ? 'border-dashed border-gray-300' : 'border-solid border-gray-200'}`}
-            onDragOver={isAdmin ? handleDragOver : undefined}
-            onDrop={isAdmin ? (e) => handleDrop(e, slot.id) : undefined}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">{slot.time}</h3>
-              <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded text-sm">
-                {filteredSchedule[slot.id]?.length || 0} people
-              </span>
-            </div>
-           
-            <div className="space-y-2">
-              {filteredSchedule[slot.id]?.map(person => {
-                const team = getPersonTeam(person.name);
-                return (
-                  <div
-                    key={person.id}
-                    draggable={isAdmin}
-                    onDragStart={isAdmin ? (e) => handleDragStart(e, person, slot.id) : undefined}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium ${isAdmin ? 'cursor-move' : 'cursor-default'} border flex items-center justify-between ${team?.color || 'bg-gray-100 text-gray-800 border-gray-200'}`}
-                  >
-                    <span>{person.name}</span>
-                    {isAdmin && (
-                      <span className="text-xs opacity-75">{team?.name}</span>
-                    )}
+      {/* Schedule Grid (Mon–Thu) */}
+      <div className="mb-10">
+        <h2 className="text-xl font-bold mb-2">Mon–Thu Schedule</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          {timeSlots.map(slot => (
+            <div
+              key={slot.id}
+              className={`bg-white border-2 rounded-lg p-4 min-h-[300px] ${isAdmin ? 'border-dashed border-gray-300' : 'border-solid border-gray-200'}`}
+              onDragOver={isAdmin ? handleDragOver : undefined}
+              onDrop={isAdmin ? (e) => handleDrop(e, slot.id) : undefined}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">{slot.time}</h3>
+                <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded text-sm">
+                  {filteredSchedule[slot.id]?.length || 0} people
+                </span>
+              </div>
+            
+              <div className="space-y-2">
+                {filteredSchedule[slot.id]?.map(person => {
+                  const team = getPersonTeam(person.name);
+                  return (
+                    <div
+                      key={person.id}
+                      draggable={isAdmin}
+                      onDragStart={isAdmin ? (e) => handleDragStart(e, person, slot.id) : undefined}
+                      className={`px-3 py-2 rounded-lg text-sm font-medium ${isAdmin ? 'cursor-move' : 'cursor-default'} border flex items-center justify-between ${team?.color || 'bg-gray-100 text-gray-800 border-gray-200'}`}
+                    >
+                      <span>{person.name}</span>
+                      {isAdmin && (
+                        <span className="text-xs opacity-75">{team?.name}</span>
+                      )}
+                    </div>
+                  );
+                })}
+            
+                {(!filteredSchedule[slot.id] || filteredSchedule[slot.id].length === 0) && isAdmin && (
+                  <div className="text-center text-gray-400 py-8">
+                    Drop people here
                   </div>
-                );
-              })}
-             
-              {(!filteredSchedule[slot.id] || filteredSchedule[slot.id].length === 0) && isAdmin && (
-                <div className="text-center text-gray-400 py-8">
-                  Drop people here
-                </div>
-              )}
+                )}
+              </div>
             </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Unscheduled People for Friday */}
+      {isAdmin && getUnscheduledFridayPeople().length > 0 && (
+        <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <h3 className="font-semibold text-yellow-800 mb-2">Unscheduled People for Friday ({getUnscheduledFridayPeople().length})</h3>
+          <div className="flex flex-wrap gap-2">
+            {getUnscheduledFridayPeople().map(person => {
+              const team = getPersonTeam(person);
+              const member = members.find(m => m.name === person);
+              return (
+                <div
+                  key={person + '-friday'}
+                  draggable={isAdmin}
+                  onDragStart={(e) => handleDragStart(e, {
+                    name: person,
+                    memberId: member?.id,
+                    id: `unscheduled-friday-${person}`
+                  })}
+                  className={`px-3 py-1 rounded-full text-sm font-medium ${isAdmin ? 'cursor-move' : 'cursor-default'} border ${team?.color || 'bg-gray-100 text-gray-800 border-gray-200'}`}
+                >
+                  {person}
+                </div>
+              );
+            })}
           </div>
-        ))}
+        </div>
+      )}
+
+      {/* Friday Schedule Grid */}
+      <div className="mb-10">
+        <h2 className="text-xl font-bold mb-2">Friday Schedule</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          {fridayTimeSlots.map(slot => (
+            <div
+              key={slot.id}
+              className={`bg-white border-2 rounded-lg p-4 min-h-[300px] ${isAdmin ? 'border-dashed border-gray-300' : 'border-solid border-gray-200'}`}
+              onDragOver={isAdmin ? handleDragOver : undefined}
+              onDrop={isAdmin ? (e) => handleFridayDrop(e, slot.id) : undefined}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">{slot.time}</h3>
+                <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded text-sm">
+                  {getFilteredFridaySchedule()[slot.id]?.length || 0} people
+                </span>
+              </div>
+              <div className="space-y-2">
+                {getFilteredFridaySchedule()[slot.id]?.map(person => {
+                  const team = getPersonTeam(person.name);
+                  return (
+                    <div
+                      key={person.id}
+                      draggable={isAdmin}
+                      onDragStart={isAdmin ? (e) => handleDragStart(e, person, slot.id) : undefined}
+                      className={`px-3 py-2 rounded-lg text-sm font-medium ${isAdmin ? 'cursor-move' : 'cursor-default'} border flex items-center justify-between ${team?.color || 'bg-gray-100 text-gray-800 border-gray-200'}`}
+                    >
+                      <span>{person.name}</span>
+                      {isAdmin && (
+                        <span className="text-xs opacity-75">{team?.name}</span>
+                      )}
+                    </div>
+                  );
+                })}
+                {(!getFilteredFridaySchedule()[slot.id] || getFilteredFridaySchedule()[slot.id].length === 0) && isAdmin && (
+                  <div className="text-center text-gray-400 py-8">
+                    Drop people here
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Team Legend */}

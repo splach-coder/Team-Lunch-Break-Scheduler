@@ -32,6 +32,7 @@ export const fetchSchedule = async () => {
       memberId: rec.get('Member')?.[0] || null,
       memberName: rec.get('Name (from Member)')?.[0] || null,
       timeSlot: rec.get('Time Slot'),
+      day: rec.get('Day') || 'Mon–Thu',
     }));
   } catch (error) {
     console.error('Error fetching schedule:', error);
@@ -39,12 +40,33 @@ export const fetchSchedule = async () => {
   }
 };
 
-export const updateSchedule = async (scheduleId, newTimeSlot) => {
+// Fetch schedule entries for a specific day
+export const fetchScheduleByDay = async (day) => {
+  try {
+    const records = await base('Schedule Table').select({
+      view: 'Grid view',
+      filterByFormula: `{Day} = '${day}'`,
+      expand: ['Member']
+    }).all();
+    return records.map(rec => ({
+      id: rec.id,
+      memberId: rec.get('Member')?.[0] || null,
+      memberName: rec.get('Name (from Member)')?.[0] || null,
+      timeSlot: rec.get('Time Slot'),
+      day: rec.get('Day') || 'Mon–Thu',
+    }));
+  } catch (error) {
+    console.error('Error fetching schedule by day:', error);
+    return [];
+  }
+};
+
+export const updateSchedule = async (scheduleId, newTimeSlot, day = 'Mon–Thu') => {
   try {
     await base('Schedule Table').update([
       {
         id: scheduleId,
-        fields: { 'Time Slot': newTimeSlot }
+        fields: { 'Time Slot': newTimeSlot, 'Day': day }
       }
     ]);
     return { success: true };
@@ -54,13 +76,14 @@ export const updateSchedule = async (scheduleId, newTimeSlot) => {
   }
 };
 
-export const createSchedule = async (memberId, timeSlot) => {
+export const createSchedule = async (memberId, timeSlot, day = 'Mon–Thu') => {
   try {
     const record = await base('Schedule Table').create([
       {
         fields: {
           'Member': [memberId],
-          'Time Slot': timeSlot
+          'Time Slot': timeSlot,
+          'Day': day
         }
       }
     ]);
@@ -80,6 +103,24 @@ export const deleteSchedule = async (scheduleId) => {
     return { success: true };
   } catch (error) {
     console.error('Error deleting schedule:', error);
+    return { success: false, error };
+  }
+};
+
+export const createMember = async (name, team, bigTeam) => {
+  try {
+    const record = await base('Members Table').create([
+      {
+        fields: {
+          'Name': name,
+          'Team': team,
+          'Big Team': bigTeam
+        }
+      }
+    ]);
+    return { success: true, id: record[0].id };
+  } catch (error) {
+    console.error('Error creating member:', error);
     return { success: false, error };
   }
 };

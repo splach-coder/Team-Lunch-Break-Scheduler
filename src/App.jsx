@@ -161,6 +161,7 @@ const App = () => {
             { name: 'Team 5', department: 'Import' },
             { name: 'Team 1', department: 'Export' },
             { name: 'Team 2', department: 'Export' },
+            { name: 'Team 3', department: 'Export' },
             { name: 'Team 1', department: 'Administration' },
             { name: 'Team 2', department: 'Administration' },
             { name: 'Team 3', department: 'Administration' },

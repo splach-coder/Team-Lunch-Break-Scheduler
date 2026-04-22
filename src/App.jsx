@@ -12,8 +12,11 @@ import {
   updateMember,
   deleteMember,
   fetchScheduleByDay,
+  fetchTeams,
+  createTeam,
+  updateTeam,
+  deleteTeam,
 } from './airtable';
-import { loadTeams, addTeam, editTeam, removeTeam } from './teams';
 
 const buildTeamStructure = (membersData) => {
   const colors = [
@@ -147,8 +150,24 @@ const App = () => {
 
         setMembers(membersData);
 
-        // Load teams from localStorage (no Airtable table needed)
-        const teamsData = loadTeams();
+        // Load teams from Airtable; seed defaults on first run
+        let teamsData = await fetchTeams();
+        if (teamsData.length === 0) {
+          const defaults = [
+            { name: 'Team 1', department: 'Import' },
+            { name: 'Team 2', department: 'Import' },
+            { name: 'Team 3', department: 'Import' },
+            { name: 'Team 4', department: 'Import' },
+            { name: 'Team 5', department: 'Import' },
+            { name: 'Team 1', department: 'Export' },
+            { name: 'Team 2', department: 'Export' },
+            { name: 'Team 1', department: 'Administration' },
+            { name: 'Team 2', department: 'Administration' },
+            { name: 'Team 3', department: 'Administration' },
+          ];
+          const created = await Promise.all(defaults.map(t => createTeam(t.name, t.department)));
+          teamsData = created.map((r, i) => ({ id: r.id, name: defaults[i].name, department: defaults[i].department }));
+        }
         setTeams(teamsData);
 
         // Set initial department selection
@@ -625,16 +644,27 @@ ${timeSlots.map(slot =>
     }
   };
 
-  const handleCreateTeam = (e) => {
+  const handleCreateTeam = async (e) => {
     e.preventDefault();
-    if (!newTeam.name || !newTeam.department) {
-      setAddTeamError('All fields are required.');
+    if (!newTeam.name) {
+      setAddTeamError('Team name is required.');
       return;
     }
-    const updated = addTeam(newTeam.name, newTeam.department);
-    setTeams(updated);
-    setNewTeam({ name: '', department: '' });
+    setSavingTeam(true);
     setAddTeamError('');
+    try {
+      const result = await createTeam(newTeam.name, selectedBigTeam);
+      if (result.success) {
+        setTeams(prev => [...prev, { id: result.id, name: newTeam.name, department: selectedBigTeam }]);
+        setNewTeam({ name: '', department: '' });
+      } else {
+        setAddTeamError('Failed to create team.');
+      }
+    } catch {
+      setAddTeamError('Failed to create team.');
+    } finally {
+      setSavingTeam(false);
+    }
   };
 
   const handleUpdateTeam = async (e) => {
@@ -648,9 +678,17 @@ ${timeSlots.map(slot =>
     const newName = editTeamData.name;
     const newDept = editTeamData.department;
 
-    // Update localStorage
-    const updated = editTeam(editingTeam.id, newName, newDept);
-    setTeams(updated);
+    // Update in Airtable
+    setSavingTeam(true);
+    try {
+      await updateTeam(editingTeam.id, newName, newDept);
+    } catch {
+      setEditTeamError('Failed to update team.');
+      setSavingTeam(false);
+      return;
+    }
+    setSavingTeam(false);
+    setTeams(prev => prev.map(t => t.id === editingTeam.id ? { ...t, name: newName, department: newDept } : t));
     setEditingTeam(null);
     setEditTeamError('');
 
@@ -677,9 +715,9 @@ ${timeSlots.map(slot =>
       : `Delete team "${team.name}"?`;
     if (!window.confirm(msg)) return;
 
-    // Remove from localStorage
-    const updated = removeTeam(team.id);
-    setTeams(updated);
+    // Remove from Airtable
+    await deleteTeam(team.id);
+    setTeams(prev => prev.filter(t => t.id !== team.id));
 
     // Clear team assignment on affected members in Airtable
     if (affected.length > 0) {
